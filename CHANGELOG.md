@@ -3,6 +3,7 @@
 ### Bugfixes
 - [#2100](https://github.com/influxdb/influxdb/pull/2100): Use channel to synchronize collectd shutdown.
 - [#2100](https://github.com/influxdb/influxdb/pull/2100): Synchronize access to shard index.
+- [#2105](https://github.com/influxdb/influxdb/pull/2105): Support != for tag values. Fix issue #2097, thanks to @smonkewitz for bug report.
 
 ## v0.9.0-rc17 [2015-03-29]
 
