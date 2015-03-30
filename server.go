@@ -201,7 +201,7 @@ func (s *Server) Open(path string, client MessagingClient) error {
 	}
 
 	// Create connection for broadcast topic.
-	conn := client.Conn(BroadcastTopicID)
+	conn := client.Conn(BroadcastTopicID, s.URL())
 	if err := conn.Open(s.index, true); err != nil {
 		_ = s.close()
 		return fmt.Errorf("open conn: %s", err)
@@ -315,9 +315,11 @@ func (s *Server) load() error {
 							continue
 						}
 
-						if err := sh.open(s.shardPath(sh.ID), s.client.Conn(sh.ID)); err != nil {
+						warn("creating shard")
+						if err := sh.open(s.shardPath(sh.ID), s.client.Conn(sh.ID, s.URL())); err != nil {
 							return fmt.Errorf("cannot open shard store: id=%d, err=%s", sh.ID, err)
 						}
+						warn("done")
 						s.stats.Inc("shardsOpen")
 					}
 				}
@@ -978,7 +980,7 @@ func (s *Server) ShardGroups(database string) ([]*ShardGroup, error) {
 
 // CreateShardGroupIfNotExists creates the shard group for a retention policy for the interval a timestamp falls into.
 func (s *Server) CreateShardGroupIfNotExists(database, policy string, timestamp time.Time) error {
-	c := &createShardGroupIfNotExistsCommand{Database: database, Policy: policy, Timestamp: timestamp}
+	c := &createShardGroupIfNotExistsCommand{Database: database, Policy: policy, Timestamp: timestamp, URL: s.URL()}
 	_, err := s.broadcast(createShardGroupIfNotExistsMessageType, c)
 	return err
 }
@@ -1074,7 +1076,7 @@ func (s *Server) applyCreateShardGroupIfNotExists(m *messaging.Message) (err err
 		}
 
 		// Open shard store. Panic if an error occurs and we can retry.
-		if err := sh.open(s.shardPath(sh.ID), s.client.Conn(sh.ID)); err != nil {
+		if err := sh.open(s.shardPath(sh.ID), s.client.Conn(sh.ID, c.URL)); err != nil {
 			panic("unable to open shard: " + err.Error())
 		}
 	}
@@ -3359,7 +3361,7 @@ type MessagingClient interface {
 	Publish(m *messaging.Message) (index uint64, err error)
 
 	// Conn returns an open, streaming connection to a topic.
-	Conn(topicID uint64) MessagingConn
+	Conn(topicID uint64, dataURL *url.URL) MessagingConn
 }
 
 type messagingClient struct {
@@ -3371,7 +3373,9 @@ func NewMessagingClient() MessagingClient {
 	return &messagingClient{messaging.NewClient()}
 }
 
-func (c *messagingClient) Conn(topicID uint64) MessagingConn { return c.Client.Conn(topicID) }
+func (c *messagingClient) Conn(topicID uint64, dataURL *url.URL) MessagingConn {
+	return c.Client.Conn(topicID, dataURL)
+}
 
 // MessagingConn represents a streaming connection to a single broker topic.
 type MessagingConn interface {
@@ -3845,4 +3849,13 @@ func (s *Server) CreateSnapshotWriter() (*SnapshotWriter, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return createServerSnapshotWriter(s)
+}
+
+func (s *Server) URL() *url.URL {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if n := s.dataNodes[s.id]; n != nil {
+		return n.URL
+	}
+	return &url.URL{}
 }

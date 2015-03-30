@@ -335,12 +335,12 @@ func (c *Client) do(method, path string, values url.Values, contentType string, 
 }
 
 // Conn returns a connection to the broker for a given topic.
-func (c *Client) Conn(topicID uint64) *Conn {
+func (c *Client) Conn(topicID uint64, dataURL *url.URL) *Conn {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	// Create connection and set current URL.
-	conn := NewConn(topicID)
+	conn := NewConn(topicID, dataURL)
 	conn.SetURL(c.url)
 
 	// Add to list of client connections.
@@ -407,6 +407,7 @@ type Conn struct {
 	index     uint64  // highest index sent over the channel
 	streaming bool    // use streaming reader, if true
 	url       url.URL // current broker url
+	dataURL   url.URL // url for the data node or this caller
 
 	opened bool
 	c      chan *Message // channel streams messages from the broker.
@@ -422,9 +423,10 @@ type Conn struct {
 }
 
 // NewConn returns a new connection to the broker for a topic.
-func NewConn(topicID uint64) *Conn {
+func NewConn(topicID uint64, dataURL *url.URL) *Conn {
 	return &Conn{
 		topicID:          topicID,
+		dataURL:          *dataURL,
 		ReconnectTimeout: DefaultReconnectTimeout,
 		Logger:           log.New(os.Stderr, "[messaging] ", log.LstdFlags),
 	}
@@ -546,6 +548,7 @@ func (c *Conn) Heartbeat() error {
 	u.RawQuery = url.Values{
 		"topicID": {strconv.FormatUint(topicID, 10)},
 		"index":   {strconv.FormatUint(index, 10)},
+		"url":     {c.dataURL.String()},
 	}.Encode()
 	resp, err = http.Post(u.String(), "application/octet-stream", nil)
 	if err != nil {
