@@ -10,6 +10,7 @@ import (
 	"github.com/influxdata/influxdb/http/metric"
 	"github.com/influxdata/influxdb/kit/prom"
 	"github.com/influxdata/influxdb/query"
+	"github.com/influxdata/influxdb/query/control"
 	"github.com/influxdata/influxdb/storage"
 	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
@@ -31,6 +32,7 @@ type APIHandler struct {
 	TaskHandler          *TaskHandler
 	TelegrafHandler      *TelegrafHandler
 	QueryHandler         *FluxHandler
+	PromAPIHandler       *PromAPIHandler
 	WriteHandler         *WriteHandler
 	DocumentHandler      *DocumentHandler
 	SetupHandler         *SetupHandler
@@ -70,6 +72,7 @@ type APIBackend struct {
 	OnboardingService               influxdb.OnboardingService
 	InfluxQLService                 query.ProxyQueryService
 	FluxService                     query.ProxyQueryService
+	FluxQueryController             *control.Controller
 	TaskService                     influxdb.TaskService
 	TelegrafService                 influxdb.TelegrafConfigStore
 	ScraperTargetStoreService       influxdb.ScraperTargetStoreService
@@ -160,6 +163,9 @@ func NewAPIHandler(b *APIBackend) *APIHandler {
 	fluxBackend := NewFluxBackend(b)
 	h.QueryHandler = NewFluxHandler(fluxBackend)
 
+	promAPIBackend := NewPromAPIBackend(b)
+	h.PromAPIHandler = NewPromAPIHandler(promAPIBackend)
+
 	h.ChronografHandler = NewChronografHandler(b.ChronografService)
 	h.SwaggerHandler = newSwaggerLoader(b.Logger.With(zap.String("service", "swagger-loader")))
 	h.LabelHandler = NewLabelHandler(authorizer.NewLabelService(b.LabelService))
@@ -241,6 +247,11 @@ func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if strings.HasPrefix(r.URL.Path, "/api/v2/query") {
 		h.QueryHandler.ServeHTTP(w, r)
+		return
+	}
+
+	if strings.HasPrefix(r.URL.Path, "/api/v2/prometheus") {
+		h.PromAPIHandler.ServeHTTP(w, r)
 		return
 	}
 

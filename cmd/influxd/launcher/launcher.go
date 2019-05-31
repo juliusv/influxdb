@@ -621,6 +621,7 @@ func (m *Launcher) run(ctx context.Context) (err error) {
 		OnboardingService:               onboardingSvc,
 		InfluxQLService:                 nil, // No InfluxQL support
 		FluxService:                     storageQueryService,
+		FluxQueryController:             m.queryController,
 		TaskService:                     taskSvc,
 		TelegrafService:                 telegrafSvc,
 		ScraperTargetStoreService:       scraperTargetSvc,
