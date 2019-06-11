@@ -45,22 +45,25 @@ func (h *AuthenticationHandler) RegisterNoAuthRoute(method, path string) {
 const (
 	tokenAuthScheme   = "token"
 	sessionAuthScheme = "session"
+	basicAuthScheme   = "basic_auth"
 )
 
 // ProbeAuthScheme probes the http request for the requests for token or cookie session.
 func ProbeAuthScheme(r *http.Request) (string, error) {
 	_, tokenErr := GetToken(r)
 	_, sessErr := decodeCookieSession(r.Context(), r)
+	_, _, basicAuthOk := r.BasicAuth()
 
-	if tokenErr != nil && sessErr != nil {
-		return "", fmt.Errorf("token required")
-	}
-
-	if tokenErr == nil {
+	switch {
+	case tokenErr == nil:
 		return tokenAuthScheme, nil
+	case sessErr == nil:
+		return sessionAuthScheme, nil
+	case basicAuthOk:
+		return basicAuthScheme, nil
+	default:
+		return "", fmt.Errorf("token, session cookie, or basic authentication required")
 	}
-
-	return sessionAuthScheme, nil
 }
 
 // ServeHTTP extracts the session or token from the http request and places the resulting authorizer on the request context.
@@ -79,7 +82,7 @@ func (h *AuthenticationHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 
 	switch scheme {
 	case tokenAuthScheme:
-		ctx, err = h.extractAuthorization(ctx, r)
+		ctx, err = h.extractTokenAuthorization(ctx, r)
 		if err != nil {
 			break
 		}
@@ -94,12 +97,20 @@ func (h *AuthenticationHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 		r = r.WithContext(ctx)
 		h.Handler.ServeHTTP(w, r)
 		return
+	case basicAuthScheme:
+		ctx, err = h.extractBasicAuthTokenAuthorization(ctx, r)
+		if err != nil {
+			break
+		}
+		r = r.WithContext(ctx)
+		h.Handler.ServeHTTP(w, r)
+		return
 	}
 
 	UnauthorizedError(ctx, w)
 }
 
-func (h *AuthenticationHandler) extractAuthorization(ctx context.Context, r *http.Request) (context.Context, error) {
+func (h *AuthenticationHandler) extractTokenAuthorization(ctx context.Context, r *http.Request) (context.Context, error) {
 	t, err := GetToken(r)
 	if err != nil {
 		return ctx, err
@@ -133,4 +144,19 @@ func (h *AuthenticationHandler) extractSession(ctx context.Context, r *http.Requ
 	}
 
 	return platcontext.SetAuthorizer(ctx, s), nil
+}
+
+func (h *AuthenticationHandler) extractBasicAuthTokenAuthorization(ctx context.Context, r *http.Request) (context.Context, error) {
+	// We expect the auth token in the basic auth password. The username is ignored.
+	_, pass, ok := r.BasicAuth()
+	if !ok {
+		return nil, fmt.Errorf("missing basic auth info in request")
+	}
+
+	a, err := h.AuthorizationService.FindAuthorizationByToken(ctx, pass)
+	if err != nil {
+		return ctx, err
+	}
+
+	return platcontext.SetAuthorizer(ctx, a), nil
 }
